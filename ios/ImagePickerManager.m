@@ -61,29 +61,31 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
     
     self.options = options;
 
-#if __has_include(<PhotosUI/PHPicker.h>)
-    if (@available(iOS 14, *)) {
-        if (target == library) {
-            PHPickerConfiguration *configuration = [ImagePickerUtils makeConfigurationFromOptions:options target:target];
-            PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration];
-            picker.delegate = self;
-            picker.presentationController.delegate = self;
-
-            [self showPickerViewController:picker];
-            return;
-        }
-    }
-#endif
-    
-    UIImagePickerController *picker = [[UIImagePickerController alloc] init];
-    [ImagePickerUtils setupPickerFromOptions:picker options:self.options target:target];
-    picker.delegate = self;
 
     [self checkPermission:^(BOOL granted) {
         if (!granted) {
             self.callback(@[@{@"errorCode": errPermission}]);
             return;
         }
+       
+        #if __has_include(<PhotosUI/PHPicker.h>)
+            if (@available(iOS 14, *)) {
+                if (target == library) {
+                    PHPickerConfiguration *configuration = [ImagePickerUtils makeConfigurationFromOptions:options target:target];
+                    PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration];
+                    picker.delegate = self;
+                    picker.presentationController.delegate = self;
+
+                    [self showPickerViewController:picker];
+                    return;
+                }
+            }
+        #endif
+
+        UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+        [ImagePickerUtils setupPickerFromOptions:picker options:self.options target:target];
+        picker.delegate = self;
+
         [self showPickerViewController:picker];
     }];
 }
@@ -261,12 +263,7 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
         [self checkCameraPermissions:permissionBlock];
     }
     else {
-        if (@available(iOS 11.0, *)) {
-            callback(YES);
-        }
-        else {
-            [self checkPhotosPermissions:permissionBlock];
-        }
+        [self checkPhotosPermissions:permissionBlock];
     }
 }
 
@@ -306,15 +303,34 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
 
         if ([info[UIImagePickerControllerMediaType] isEqualToString:(NSString *) kUTTypeImage]) {
             UIImage *image = [ImagePickerManager getUIImageFromInfo:info];
-            [assets addObject:[self mapImageToAsset:image data:[NSData dataWithContentsOfURL:[ImagePickerManager getNSURLFromInfo:info]]]];
+            NSMutableDictionary * dict = [self mapImageToAsset:image data:[NSData dataWithContentsOfURL:[ImagePickerManager getNSURLFromInfo:info]]];
+
+            if (@available(iOS 11.0, *)) {
+                PHAsset * asset = info[UIImagePickerControllerPHAsset];
+
+                if (asset != nil) {
+                    dict[@"localIdentifier"] = asset.localIdentifier;
+                }
+            }
+            
+            [assets addObject:dict];
         } else {
             NSError *error;
-            NSDictionary *asset = [self mapVideoToAsset:info[UIImagePickerControllerMediaURL] error:&error];
-            if (asset == nil) {
+            NSMutableDictionary *dict = [self mapVideoToAsset:info[UIImagePickerControllerMediaURL] error:&error];
+            if (dict == nil) {
                 self.callback(@[@{@"errorCode": errOthers, @"errorMessage":  error.localizedFailureReason}]);
                 return;
             }
-            [assets addObject:asset];
+
+            if (@available(iOS 11.0, *)) {
+                PHAsset * asset = info[UIImagePickerControllerPHAsset];
+
+                if (asset != nil) {
+                    dict[@"localIdentifier"] = asset.localIdentifier;
+                }
+            }
+
+            [assets addObject:dict];
         }
 
         NSMutableDictionary *response = [[NSMutableDictionary alloc] init];
@@ -372,14 +388,20 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
             [provider loadDataRepresentationForTypeIdentifier:(NSString *)kUTTypeImage completionHandler:^(NSData * _Nullable data, NSError * _Nullable error) {
                 UIImage *image = [[UIImage alloc] initWithData:data];
 
-                [assets addObject:[self mapImageToAsset:image data:data]];
+                NSMutableDictionary * dict = [self mapImageToAsset:image data:data];
+                dict[@"localIdentifier"] = result.assetIdentifier;
+                [assets addObject:dict];
+                
                 dispatch_group_leave(completionGroup);
             }];
         }
 
         if ([provider hasItemConformingToTypeIdentifier:(NSString *)kUTTypeMovie]) {
             [provider loadFileRepresentationForTypeIdentifier:(NSString *)kUTTypeMovie completionHandler:^(NSURL * _Nullable url, NSError * _Nullable error) {
-                [assets addObject:[self mapVideoToAsset:url error:nil]];
+                NSMutableDictionary * dict = [self mapVideoToAsset:url error:nil];
+                dict[@"localIdentifier"] = result.assetIdentifier;
+                [assets addObject:dict];
+                
                 dispatch_group_leave(completionGroup);
             }];
         }
