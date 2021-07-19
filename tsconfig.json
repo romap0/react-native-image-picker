@@ -9,7 +9,11 @@
     "strict": true,
     "moduleResolution": "node",
     "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "types": [
+      "react",
+      "react-native"
+    ],
   },
   "exclude": [
     "example",
